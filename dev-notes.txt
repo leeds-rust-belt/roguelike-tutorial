@@ -1,0 +1,11 @@
+A Brief history of what I did to make stuff work.
+
+This is WSL2 on top of windows10 running ubuntu 22-04
+Following the tutorial at: https://tomassedovic.github.io/roguelike-tutorial/
+
+Started new project in the standard way
+Installed libtcod which required libsdl2-dev - this actually had some issues installing via apt ... probably wsl related. I had to manually install libegl as the dependencies were b0rked
+
+First problem ... there is no display attached to wsl so running the initial window does nothing. Running an xserver just causes a segfault.
+    OK - above was weirdness with the xserver. Updated wsl and it is runnig now. Suspect xlaunch might need to go at some point
+
