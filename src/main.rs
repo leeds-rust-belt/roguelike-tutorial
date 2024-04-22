@@ -2,24 +2,33 @@ use std::cmp;
 use tcod::colors::*;
 use tcod::console::*;
 use rand::Rng;
+use tcod::map::{FovAlgorithm, Map as FovMap};
 
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
+
 const MAP_WIDTH: i32 = 80;
 const MAP_HEIGHT: i32 = 45;
 const ROOM_MAX_SIZE: i32 = 10;
 const ROOM_MIN_SIZE: i32 = 6;
 const MAX_ROOMS: i32 = 30;
 
+const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
+const FOV_LIGHT_WALLS: bool = true;
+const TORCH_RADIUS: i32 = 10;
+
 // colour defs
 const DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
+const LIGHT_WALL: Color = Color { r: 130, g: 110, b: 50};
 const DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
+const LIGHT_GROUND: Color = Color { r: 200, g: 180, b: 50 };
 
 const LIMIT_FPS: i32 = 20;
 
 struct Tcod {
     root: Root,
     con: Offscreen,
+    fov: FovMap,
 }
 
 // type definitions
@@ -199,19 +208,37 @@ fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
 }
 
 // render functions
-fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object]) {
+fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object], fov_recompute: bool) {
+    if fov_recompute {
+        let player = &objects[0];
+        tcod.fov.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+    }
+
     for obj in objects {
-        obj.draw(&mut tcod.con);
+        if tcod.fov.is_in_fov(obj.x, obj.y) {
+            obj.draw(&mut tcod.con);
+        }
     }
 
     for y in 0..MAP_HEIGHT {
         for x in 0..MAP_WIDTH {
+            let visible = tcod.fov.is_in_fov(x, y);
             let wall = game.map[x as usize][y as usize].block_sight;
-            if wall {
-                tcod.con.set_char_background(x, y, DARK_WALL, BackgroundFlag::Set);
-            } else {
-                tcod.con.set_char_background(x, y, DARK_GROUND, BackgroundFlag::Set);
-            }
+            let colour = match (visible, wall) {
+                // outside FOV
+                (false, false) => DARK_GROUND,
+                (false, true) => DARK_WALL,
+                // inside FOV
+                (true, false) => LIGHT_GROUND,
+                (true, true) => LIGHT_WALL
+            };
+
+            tcod.con.set_char_background(x, y, colour, BackgroundFlag::Set);
+            // if wall {
+            //     tcod.con.set_char_background(x, y, DARK_WALL, BackgroundFlag::Set);
+            // } else {
+            //     tcod.con.set_char_background(x, y, DARK_GROUND, BackgroundFlag::Set);
+            // }
         }
     }
 
@@ -228,7 +255,7 @@ fn main() {
         .init();
 
     let con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
-    let mut tcod = Tcod{ root, con };
+    let mut tcod = Tcod{ root, con, fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT) };
 
     // limit FPS (doesn't really matter for a key inpyt roguelike)
     tcod::system::set_fps(LIMIT_FPS);
@@ -239,14 +266,25 @@ fn main() {
     let mut objects =  [player, npc];
     let game = Game { map: make_map(&mut objects[0]) };
 
+    // Set up FOV map
+    for x in 0..MAP_WIDTH {
+        for y in 0..MAP_HEIGHT {
+            tcod.fov.set(x, y, !game.map[x as usize][y as usize].block_sight, !game.map[x as usize][y as usize].blocked);
+        }
+    }
+
+    let mut prev_pos = (-1, -1);
+
     // It's a game; it needs a game loop
     while !tcod.root.window_closed() {
+        let fov_recompute = prev_pos != (objects[0].x, objects[0].y);
 
         tcod.con.clear();
-        render_all(&mut tcod, &game, &objects);
+        render_all(&mut tcod, &game, &objects, fov_recompute);
         tcod.root.flush();
 
         let player = &mut objects[0];
+        prev_pos = (player.x, player.y);
         let exit = handle_keys(&mut tcod, &game, player);
         if exit { break; }
     }

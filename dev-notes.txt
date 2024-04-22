@@ -10,3 +10,5 @@ First problem ... there is no display attached to wsl so running the initial win
     OK - above was weirdness with the xserver. Updated wsl and it is runnig now. Suspect xlaunch might need to go at some point
 
 Using latest rand crate rather than the one listed in the tutorial.
+    Inefficient use of rnadom() call in loop - could move to cached rng Installed
+    Example in tutorial is using old rand crate and the range generation signature has now changed to a range rather than start and end values.
