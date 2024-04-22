@@ -98,16 +98,17 @@ impl Object {
 #[derive(Debug, Clone, Copy)]
 struct Tile {
     blocked: bool,
+    explored: bool,
     block_sight: bool,
 }
 
 impl Tile {
     pub fn empty() -> Self {
-        Tile { blocked: false, block_sight: false }
+        Tile { blocked: false, explored: false, block_sight: false }
     }
 
     pub fn wall() -> Self {
-        Tile { blocked: true, block_sight: true }
+        Tile { blocked: true, explored: false, block_sight: true }
     }
 }
 
@@ -134,14 +135,6 @@ fn handle_keys(tcod: &mut Tcod, game: &Game, player: &mut Object) -> bool {
 // map creation functions
 fn make_map(player: &mut Object) -> Map {
     let mut map = vec![vec![Tile::wall(); MAP_HEIGHT as usize]; MAP_WIDTH as usize];
-    
-    // test
-    // let room1 = Rect::new(20, 15, 10, 15);
-    // let room2 = Rect::new(50, 15, 10, 15);
-    // create_room(room1, &mut map);
-    // create_room(room2, &mut map);
-    // create_h_tunnel(30, 50, 23, &mut map);
-
     let mut rooms = vec![];
 
     for _ in 0..MAX_ROOMS {
@@ -208,7 +201,7 @@ fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
 }
 
 // render functions
-fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object], fov_recompute: bool) {
+fn render_all(tcod: &mut Tcod, game: &mut Game, objects: &[Object], fov_recompute: bool) {
     if fov_recompute {
         let player = &objects[0];
         tcod.fov.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
@@ -233,12 +226,15 @@ fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object], fov_recompute: b
                 (true, true) => LIGHT_WALL
             };
 
-            tcod.con.set_char_background(x, y, colour, BackgroundFlag::Set);
-            // if wall {
-            //     tcod.con.set_char_background(x, y, DARK_WALL, BackgroundFlag::Set);
-            // } else {
-            //     tcod.con.set_char_background(x, y, DARK_GROUND, BackgroundFlag::Set);
-            // }
+            // Need to define here as we're borrowing game.map again, but this time as mutable. Previously borrowed as wall.
+            let explored = &mut game.map[x as usize][y as usize].explored;
+            if visible {
+                *explored = true;
+            }
+
+            if *explored {
+                tcod.con.set_char_background(x, y, colour, BackgroundFlag::Set);
+            }
         }
     }
 
@@ -257,14 +253,14 @@ fn main() {
     let con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
     let mut tcod = Tcod{ root, con, fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT) };
 
-    // limit FPS (doesn't really matter for a key inpyt roguelike)
+    // limit FPS (doesn't really matter for a key input roguelike)
     tcod::system::set_fps(LIMIT_FPS);
 
     // Game objects
     let player = Object::new(0, 0, '@', WHITE);
     let npc = Object::new(MAP_WIDTH / 2 - 5, MAP_HEIGHT / 2, '@', YELLOW);
     let mut objects =  [player, npc];
-    let game = Game { map: make_map(&mut objects[0]) };
+    let mut game = Game { map: make_map(&mut objects[0]) };
 
     // Set up FOV map
     for x in 0..MAP_WIDTH {
@@ -280,7 +276,7 @@ fn main() {
         let fov_recompute = prev_pos != (objects[0].x, objects[0].y);
 
         tcod.con.clear();
-        render_all(&mut tcod, &game, &objects, fov_recompute);
+        render_all(&mut tcod, &mut game, &objects, fov_recompute);
         tcod.root.flush();
 
         let player = &mut objects[0];

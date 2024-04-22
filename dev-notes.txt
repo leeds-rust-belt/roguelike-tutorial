@@ -12,3 +12,5 @@ First problem ... there is no display attached to wsl so running the initial win
 Using latest rand crate rather than the one listed in the tutorial.
     Inefficient use of rnadom() call in loop - could move to cached rng Installed
     Example in tutorial is using old rand crate and the range generation signature has now changed to a range rather than start and end values.
+
+Learning: The order of when you borrow stuff is super important. Rust kind of discourages you from setting variables at the top of functions if they're borrowing from the same source.
