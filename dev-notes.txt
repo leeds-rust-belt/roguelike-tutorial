@@ -9,3 +9,4 @@ Installed libtcod which required libsdl2-dev - this actually had some issues ins
 First problem ... there is no display attached to wsl so running the initial window does nothing. Running an xserver just causes a segfault.
     OK - above was weirdness with the xserver. Updated wsl and it is runnig now. Suspect xlaunch might need to go at some point
 
+Using latest rand crate rather than the one listed in the tutorial.
