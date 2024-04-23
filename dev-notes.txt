@@ -14,3 +14,6 @@ Using latest rand crate rather than the one listed in the tutorial.
     Example in tutorial is using old rand crate and the range generation signature has now changed to a range rather than start and end values.
 
 Learning: The order of when you borrow stuff is super important. Rust kind of discourages you from setting variables at the top of functions if they're borrowing from the same source.
+
+Intersting to see about the composition of characters "traits" and whether that's a great design approach or not. It is what it is for this tutorial but something feels off on very first impressions
+Initial AI stuff kind of works but monsters can't track you diagonally from room to corridors.
