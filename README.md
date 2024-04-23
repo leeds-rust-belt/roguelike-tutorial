@@ -18,7 +18,7 @@ If you're running this in WSL on windows then you might need an xserver of some 
 ### Install
 1. Clone the repo
 ```sh
-git clone https://github.com/github_username/repo_name.git
+git clone https://github.com/leeds-rust-belt/roguelike-tutorial.git
 ```
 2. Build
 
