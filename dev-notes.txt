@@ -17,3 +17,5 @@ Learning: The order of when you borrow stuff is super important. Rust kind of di
 
 Intersting to see about the composition of characters "traits" and whether that's a great design approach or not. It is what it is for this tutorial but something feels off on very first impressions
 Initial AI stuff kind of works but monsters can't track you diagonally from room to corridors.
+
+Well, first big hurdle. the tcod crate contains deprecated stuff that causes a panic. Had to fix this by actually pulling the "crate" directly from the git repo where this issue has been patched

@@ -1,10 +1,11 @@
 [package]
-name = "rouglelike-tutorial"
+name = "roguelike-tutorial"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tcod = "0.15"
+# tcod = "0.15"
+tcod ={ git = "https://github.com/tomassedovic/tcod-rs.git" }
 rand = "0.8.5"

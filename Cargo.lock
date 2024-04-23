@@ -33,9 +33,9 @@ dependencies = [
 
 [[package]]
 name = "lazy_static"
-version = "0.1.16"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf186d1a8aa5f5bee5fd662bc9c1b949e0259e1bcc379d1f006847b0080c7417"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
@@ -86,7 +86,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rouglelike-tutorial"
+name = "roguelike-tutorial"
 version = "0.1.0"
 dependencies = [
  "rand",
@@ -96,8 +96,7 @@ dependencies = [
 [[package]]
 name = "tcod"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44e518b0661949712e8dbc6d6d9d7c00a405dd88bc539102c1edfc2d22e5e144"
+source = "git+https://github.com/tomassedovic/tcod-rs.git#d4ad0749867acad6c1e510bf5eda802b074e153c"
 dependencies = [
  "bitflags",
  "lazy_static",
@@ -107,8 +106,7 @@ dependencies = [
 [[package]]
 name = "tcod-sys"
 version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "730fb27d2261f7c860ae7a61c3ae70277f0836173ceeccb594193abb4fa5f4aa"
+source = "git+https://github.com/tomassedovic/tcod-rs.git#d4ad0749867acad6c1e510bf5eda802b074e153c"
 dependencies = [
  "cc",
  "pkg-config",

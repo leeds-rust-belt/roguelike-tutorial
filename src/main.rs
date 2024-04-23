@@ -4,6 +4,7 @@ use tcod::colors::*;
 use tcod::console::*;
 use rand::Rng;
 use tcod::map::{FovAlgorithm, Map as FovMap};
+use tcod::input::{self, Event, Key, Mouse};
 
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
@@ -70,6 +71,8 @@ struct Tcod {
     con: Offscreen,
     panel: Offscreen,
     fov: FovMap,
+    key: Key,
+    mouse: Mouse,
 }
 
 // type definitions
@@ -222,14 +225,20 @@ impl Tile {
     }
 }
 
+fn get_names_under_mouse(mouse: Mouse, objects: &[Object], fov_map: &FovMap) -> String {
+    let (x, y) = (mouse.cx as i32, mouse.cy as i32);
+    // This should probably be a filter_map call
+    let names = objects.iter().filter(|obj| obj.pos() == (x, y) && fov_map.is_in_fov(obj.x, obj.y)).map(|obj| obj.name.clone()).collect::<Vec<_>>();
+    names.join(", ")
+}
+
 fn handle_keys(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) -> PlayerAction {
-    use tcod::input::Key;
     use tcod::input::KeyCode::*;
     use PlayerAction::*;
 
-    let key = tcod.root.wait_for_keypress(true);
+    // let key = tcod.root.wait_for_keypress(true);
     let player_alive = objects[PLAYER].alive;
-    match (key, key.text(), player_alive) {
+    match (tcod.key, tcod.key.text(), player_alive) {
         (Key { code: Enter, alt: true, .. }, _, _) => {
             let fullscreen = tcod.root.is_fullscreen();
             tcod.root.set_fullscreen(!fullscreen);
@@ -505,6 +514,9 @@ fn render_all(tcod: &mut Tcod, game: &mut Game, objects: &[Object], fov_recomput
 
         tcod.panel.set_default_foreground(colour);
         tcod.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+
+        tcod.panel.set_default_foreground(LIGHT_GREY);
+        tcod.panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left, get_names_under_mouse(tcod.mouse, objects, &tcod.fov))
     }
     // get the relevant player stats
     let hp = objects[PLAYER].fighter.map_or(0, |f| f.hp);
@@ -549,6 +561,8 @@ fn main() {
         con: Offscreen::new(MAP_WIDTH, MAP_HEIGHT), 
         panel: Offscreen::new(SCREEN_WIDTH, PANEL_HEIGHT),
         fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
+        key: Default::default(),
+        mouse: Default::default(),
     };
 
     // limit FPS (doesn't really matter for a key input roguelike)
@@ -571,11 +585,19 @@ fn main() {
 
     let mut prev_pos = (-1, -1);
 
-    game.messages.add("Welcome stranger! SOmething something foreboding something something death", RED);
+    game.messages.add("Welcome stranger! Something something foreboding something something death", RED);
 
     // It's a game; it needs a game loop
     while !tcod.root.window_closed() {
         let fov_recompute = prev_pos != (objects[PLAYER].x, objects[PLAYER].y);
+
+        // This call panics. :(
+        // Might be time to move away from tcod
+        match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
+            Some((_, Event::Mouse(m))) => tcod.mouse = m,
+            Some((_, Event::Key(k))) => tcod.key = k,
+            _ => tcod.key = Default::default(),
+        }
 
         tcod.con.clear();
         render_all(&mut tcod, &mut game, &objects, fov_recompute);
