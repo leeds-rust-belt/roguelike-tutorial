@@ -114,6 +114,24 @@ impl Object {
         ((dx*dx + dy*dy) as f32).sqrt()
     }
 
+    pub fn take_damage(&mut self, damage: i32) {
+        if let Some(fighter) = self.fighter.as_mut() {
+            if damage > 0 {
+                fighter.hp -= damage;
+            }
+        }
+    }
+
+    pub fn attack(&mut self, target: &mut Object) {
+        let damage = self.fighter.map_or(0, |me| me.power) - target.fighter.map_or(0, |opponent| opponent.defence);
+        if damage > 0 {
+            println!("{} attacks {} for {} hp", self.name, target.name, damage);
+            target.take_damage(damage);
+        } else {
+            println!("{} attacks {} but it has no effect", self.name, target.name);
+        }
+    }
+
     // draw the Object (this includes setting the colour appropriately etc)
     // Note - the `dyn` keyword dentoes that we're working on a trait rather than a concrete type
     pub fn draw(&self, con: &mut dyn Console) {
@@ -292,8 +310,10 @@ fn ai_take_turn(id: usize, tcod: &Tcod, game: &Game, objects: &mut [Object]) {
             move_towards(id, px, py, &game.map, objects);
         } else if objects[PLAYER].fighter.map_or(false, |m| m.hp > 0) {
             // ATTTACK!!!!!
-            let monster = &objects[id];
-            println!("The attack of the {} bounces off your shiny armour", monster.name);
+            // let monster = &objects[id];
+            // println!("The attack of the {} bounces off your shiny armour", monster.name);
+            let (monster, player) = mut_two(id, PLAYER, objects);
+            monster.attack(player);
         }
     }
 }
@@ -325,12 +345,38 @@ fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
     match target_id {
         Some(target_id) => {
             // Attackable target
-            println!("You would attack the {} but your pacifist oath prevents you", objects[target_id].name);
+            // println!("You would attack the {} but your pacifist oath prevents you", objects[target_id].name);
+            let (player, target) = mut_two(PLAYER, target_id, objects);
+            player.attack(target);
         },
         None => {
             // Player move
             move_by(PLAYER, dx, dy, map, objects);
         }
+    }
+}
+
+// utils
+
+// Extract two mutable entries from the same slice
+fn mut_two<T>(first_idx: usize, second_idx: usize, items: &mut [T]) -> (&mut T, &mut T) {
+    // ensure we don't try and extract the same thing twice - just panic at this point
+    // Note - split_at_mut will panic if any of the indexes are out of bounds
+    assert!(first_idx != second_idx);
+
+    // get the higher of the two indexes
+    let split_idx = cmp::max(first_idx, second_idx);
+
+    // split into two mutable slices at the split index
+    let (slice1, slice2) = items.split_at_mut(split_idx);
+
+    // figure the actual mutable objects we need based on new index positions
+    // the first slice will reflect the lower of the two indexes as is
+    // the second slice will have the element we split at at position 0
+    if first_idx < second_idx {
+        (&mut slice1[first_idx], &mut slice2[0])
+    } else {
+        (&mut slice2[0], &mut slice1[second_idx])
     }
 }
 
@@ -373,6 +419,11 @@ fn render_all(tcod: &mut Tcod, game: &mut Game, objects: &[Object], fov_recomput
     }
 
     blit(&tcod.con, (0, 0), (SCREEN_WIDTH, SCREEN_HEIGHT), &mut tcod.root, (0, 0), 1.0, 1.0);
+
+    tcod.root.set_default_foreground(WHITE);
+    if let Some(fighter) = objects[PLAYER].fighter {
+        tcod.root.print_ex(1, SCREEN_HEIGHT-2, BackgroundFlag::None, TextAlignment::Left, format!("HP: {}/{}", fighter.hp, fighter.max_hp));
+    }
 }
 
 fn main() {
