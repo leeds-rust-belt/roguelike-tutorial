@@ -13,7 +13,11 @@ To get up and running follow the steps below
 You need rustc installed to build the code. This is best done by running rustup
 Full instructions can be found here: https://www.rust-lang.org/learn/get-started
 
-If you're running this in WSL on windows then you might need an xserver of some sort, dpending on what version of WSL you are running
+If you're running this in WSL on windows then you might need an xserver of some sort, dpending on what version of WSL you are running.
+
+You must also install the tcod dependencies as listed here: https://github.com/tomassedovic/tcod-rs#how-to-use-this
+
+Use the relevant instructions for whichever platyform you're building this on.
 
 ### Install
 1. Clone the repo
