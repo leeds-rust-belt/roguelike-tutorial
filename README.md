@@ -4,6 +4,8 @@
 ## About The Project
 A start to learning how to code up a console based roguelike in rust based on a tutorial supplied at https://tomassedovic.github.io/roguelike-tutorial/
 
+Note: Right now this is a single file nightmare. This is because of the way the tutorial is structured. I shall refactor it at some point so it's less insane
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Getting Started
