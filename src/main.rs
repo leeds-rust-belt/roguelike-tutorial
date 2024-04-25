@@ -28,6 +28,7 @@ const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
 const FOV_LIGHT_WALLS: bool = true;
 const TORCH_RADIUS: i32 = 10;
 
+const CLW: i32 = 4;
 const PLAYER: usize = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,6 +46,11 @@ enum AI {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
     Heal,
+}
+
+enum UseResult {
+    UsedUp,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -189,6 +195,15 @@ impl Object {
         }
     }
 
+    pub fn heal(&mut self, amount: i32) {
+        if let Some(ref mut fighter) = self.fighter {
+            fighter.hp += amount;
+            if fighter.hp > fighter.max_hp {
+                fighter.hp = fighter.max_hp;
+            }
+        }
+    }
+
     pub fn attack(&mut self, target: &mut Object, game: &mut Game) {
         let damage = self.fighter.map_or(0, |me| me.power) - target.fighter.map_or(0, |opponent| opponent.defence);
         if damage > 0 {
@@ -274,11 +289,15 @@ fn handle_keys(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) -> P
             if let Some(item_id) = item_id {
                 pick_item_up(item_id, game, objects);
             };
-            TookTurn
+            DidntTakeTurn
         },
         (Key { code: Text, .. }, "i", true) => {
-            inventory_menu(&game.inventory, "Select item to use", &mut tcod.root);
-            TookTurn
+            let inv_idx = inventory_menu(&game.inventory, "Select item to use", &mut tcod.root);
+            if let Some(inv_idx) = inv_idx {
+                use_item(inv_idx, tcod, game, objects);
+                return TookTurn;
+            }
+            DidntTakeTurn
         },
         (Key { code: Escape, .. }, _, _) => Exit,
         _ => DidntTakeTurn
@@ -458,6 +477,40 @@ fn pick_item_up(obj_id: usize, game: &mut Game, objects: &mut Vec<Object>) {
         game.messages.add(format!("You have picked up a {}", item.name), GREEN);
         game.inventory.push(item);
     }
+}
+
+fn use_item(inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) {
+    use Item::*;
+    if let Some(item) = game.inventory[inv_id].item {
+        let on_use = match item {
+            Heal => cast_heal
+        };
+
+        match on_use(inv_id, tcod, game, objects) {
+            UseResult::UsedUp => {
+                game.inventory.remove(inv_id);
+            },
+            UseResult::Cancelled => {
+                game.messages.add("Cancelled", WHITE);
+            }
+        }
+    } else {
+        game.messages.add(format!("The {} cannot be used", game.inventory[inv_id].name), WHITE);
+    }
+}
+
+fn cast_heal(_inv_id: usize, _tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) -> UseResult {
+    if let Some(fighter) = objects[PLAYER].fighter {
+        if fighter.hp == fighter.max_hp {
+            game.messages.add("Already at full health", ORANGE);
+            return UseResult::Cancelled;
+        } else {
+            game.messages.add("Your wounds start to feel better", LIGHT_VIOLET);
+            objects[PLAYER].heal(CLW);
+            return UseResult::UsedUp;
+        }
+    }
+    UseResult::Cancelled
 }
 
 fn player_death(player: &mut Object, game: &mut Game) {
