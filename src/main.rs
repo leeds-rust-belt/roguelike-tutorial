@@ -29,6 +29,9 @@ const FOV_LIGHT_WALLS: bool = true;
 const TORCH_RADIUS: i32 = 10;
 
 const CLW: i32 = 4;
+const LIGHTNING_RANGE: i32 = 5;
+const LIGHTNING_DAMAGE: i32 = 40;
+
 const PLAYER: usize = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,6 +49,7 @@ enum AI {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
     Heal,
+    Lightning,
 }
 
 enum UseResult {
@@ -402,9 +406,16 @@ fn place_objects(room: Rect, map: &Map, objects: &mut Vec<Object>) {
         let y = rand::thread_rng().gen_range(room.y1+1..room.y2);
 
         if !is_blocked(x, y, map, objects) {
-            let mut pot = Object::new("healing potion", x, y, '!', VIOLET, false);
-            pot.item = Some(Item::Heal);
-            objects.push(pot);
+            let item = if rand::random::<f32>() < 0.7 {
+                let mut pot = Object::new("healing potion", x, y, '!', VIOLET, false);
+                pot.item = Some(Item::Heal);
+                pot
+            } else {
+                let mut scroll = Object::new("scroll of lightning", x, y, '#', LIGHT_YELLOW, false);
+                scroll.item = Some(Item::Lightning);
+                scroll
+            };
+            objects.push(item);
         }
     }
 }
@@ -483,7 +494,8 @@ fn use_item(inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Obje
     use Item::*;
     if let Some(item) = game.inventory[inv_id].item {
         let on_use = match item {
-            Heal => cast_heal
+            Heal => cast_heal,
+            Lightning => cast_lightning,
         };
 
         match on_use(inv_id, tcod, game, objects) {
@@ -513,6 +525,18 @@ fn cast_heal(_inv_id: usize, _tcod: &mut Tcod, game: &mut Game, objects: &mut [O
     UseResult::Cancelled
 }
 
+fn cast_lightning(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) -> UseResult {
+    let monster_id = closest_monster(tcod, objects, LIGHTNING_RANGE);
+    if let Some(monster_id) = monster_id {
+        game.messages.add(format!("A lightning bolt strikes the {} with a loud clap. It did {} points oif damage", objects[monster_id].name, LIGHTNING_DAMAGE), LIGHT_BLUE);
+        objects[monster_id].take_damage(LIGHTNING_DAMAGE, game);
+        UseResult::UsedUp
+    } else {
+        game.messages.add("There are no targets close enough", RED);
+        UseResult::Cancelled
+    }
+}
+
 fn player_death(player: &mut Object, game: &mut Game) {
     game.messages.add("You died!", RED);
     player.chr = '%';
@@ -527,6 +551,23 @@ fn monster_death(monster: &mut Object, game: &mut Game) {
     monster.fighter = None;
     monster.ai = None;
     monster.name = format!("remains of {}", monster.name);
+}
+
+fn closest_monster(tcod: &mut Tcod, objects: &mut [Object], max_range: i32) -> Option<usize> {
+    let mut closest_enemy = None;
+    let mut closest_dist = (max_range + 1) as f32;
+
+    for (id, object) in objects.iter().enumerate() {
+        if id != PLAYER && object.fighter.is_some() && object.ai.is_some() && tcod.fov.is_in_fov(object.x, object.y) {
+            let dist = objects[PLAYER].distance_to(object);
+            if dist < closest_dist {
+                closest_enemy = Some(id);
+                closest_dist = dist;
+            }
+        }
+    }
+
+    closest_enemy
 }
 
 // utils
