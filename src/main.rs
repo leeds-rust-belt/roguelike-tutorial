@@ -31,6 +31,8 @@ const TORCH_RADIUS: i32 = 10;
 const CLW: i32 = 4;
 const LIGHTNING_RANGE: i32 = 5;
 const LIGHTNING_DAMAGE: i32 = 40;
+const CONFUSE_RANGE: i32 = 4;
+const CONFUSE_NUM_TURNS: i32 = 10;
 
 const PLAYER: usize = 0;
 
@@ -44,12 +46,17 @@ enum PlayerAction {
 #[derive(Clone, Debug, PartialEq)]
 enum AI {
     Basic,
+    Confused {
+        previous_ai: Box<AI>,
+        num_turns: i32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
     Heal,
     Lightning,
+    Confuse,
 }
 
 enum UseResult {
@@ -406,13 +413,18 @@ fn place_objects(room: Rect, map: &Map, objects: &mut Vec<Object>) {
         let y = rand::thread_rng().gen_range(room.y1+1..room.y2);
 
         if !is_blocked(x, y, map, objects) {
-            let item = if rand::random::<f32>() < 0.7 {
+            let dice = rand::random::<f32>();
+            let item = if dice < 0.7 {
                 let mut pot = Object::new("healing potion", x, y, '!', VIOLET, false);
                 pot.item = Some(Item::Heal);
                 pot
-            } else {
+            } else if dice < 0.8 {
                 let mut scroll = Object::new("scroll of lightning", x, y, '#', LIGHT_YELLOW, false);
                 scroll.item = Some(Item::Lightning);
+                scroll
+            } else {
+                let mut scroll = Object::new("scroll of confusion", x, y, '#', LIGHT_YELLOW, false);
+                scroll.item = Some(Item::Confuse);
                 scroll
             };
             objects.push(item);
@@ -429,17 +441,52 @@ fn is_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
 }
 
 fn ai_take_turn(id: usize, tcod: &Tcod, game: &mut Game, objects: &mut [Object]) {
-    let (monster_x, monster_y) = objects[id].pos();
+    use AI::*;
+    if let Some(ai) = objects[id].ai.take() {
+        let new_ai = match ai {
+            Basic => ai_basic(id, tcod, game, objects),
+            Confused { previous_ai, num_turns } => ai_confused(id, tcod, game, objects, previous_ai, num_turns)
+        };
+
+        objects[id].ai = Some(new_ai);
+    }
+    // let (monster_x, monster_y) = objects[id].pos();
+    // if tcod.fov.is_in_fov(monster_x, monster_y) {
+    //     if objects[id].distance_to(&objects[PLAYER]) >= 2.0 {
+    //         // Let's move closer
+    //         let (px, py) = objects[PLAYER].pos();
+    //         move_towards(id, px, py, &game.map, objects);
+    //     } else if objects[PLAYER].fighter.map_or(false, |m| m.hp > 0) {
+    //         // ATTTACK!!!!!
+    //         let (monster, player) = mut_two(id, PLAYER, objects);
+    //         monster.attack(player, game);
+    //     }
+    // }
+}
+
+fn ai_basic(monster_id: usize, tcod: &Tcod, game: &mut Game, objects: &mut [Object]) -> AI {
+    let (monster_x, monster_y) = objects[monster_id].pos();
     if tcod.fov.is_in_fov(monster_x, monster_y) {
-        if objects[id].distance_to(&objects[PLAYER]) >= 2.0 {
-            // Let's move closer
+        if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
+            // Move towards player
             let (px, py) = objects[PLAYER].pos();
-            move_towards(id, px, py, &game.map, objects);
+            move_towards(monster_id, px, py, &game.map, objects);
         } else if objects[PLAYER].fighter.map_or(false, |m| m.hp > 0) {
             // ATTTACK!!!!!
-            let (monster, player) = mut_two(id, PLAYER, objects);
+            let (monster, player) = mut_two(monster_id, PLAYER, objects);
             monster.attack(player, game);
         }
+    }
+    AI::Basic
+}
+
+fn ai_confused(monster_id: usize, _tcod: &Tcod, game: &mut Game, objects: &mut [Object], previous_ai: Box<AI>, num_turns: i32) -> AI {
+    if num_turns >= 0 {
+        move_by(monster_id, rand::thread_rng().gen_range(-1..2), rand::thread_rng().gen_range(-1..2), &game.map, objects);
+        AI::Confused { previous_ai: previous_ai, num_turns: num_turns - 1 }
+    } else {
+        game.messages.add(format!("The {} is no longer confused", objects[monster_id].name), RED);
+        *previous_ai
     }
 }
 
@@ -496,6 +543,7 @@ fn use_item(inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Obje
         let on_use = match item {
             Heal => cast_heal,
             Lightning => cast_lightning,
+            Confuse => cast_confuse,
         };
 
         match on_use(inv_id, tcod, game, objects) {
@@ -533,6 +581,19 @@ fn cast_lightning(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mu
         UseResult::UsedUp
     } else {
         game.messages.add("There are no targets close enough", RED);
+        UseResult::Cancelled
+    }
+}
+
+fn cast_confuse(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) -> UseResult {
+    let monster_id = closest_monster(tcod, objects, CONFUSE_RANGE);
+    if let Some(monster_id) = monster_id {
+        let old_ai = objects[monster_id].ai.take().unwrap_or(AI::Basic);
+        objects[monster_id].ai = Some(AI::Confused { previous_ai: Box::new(old_ai), num_turns: CONFUSE_NUM_TURNS });
+        game.messages.add(format!("The eyes of the {} glaze over. It looks confused", objects[monster_id].name), LIGHT_GREEN);
+        UseResult::UsedUp
+    } else {
+        game.messages.add("No enemy close enough to confuse", RED);
         UseResult::Cancelled
     }
 }
