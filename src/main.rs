@@ -33,6 +33,8 @@ const LIGHTNING_RANGE: i32 = 5;
 const LIGHTNING_DAMAGE: i32 = 40;
 const CONFUSE_RANGE: i32 = 4;
 const CONFUSE_NUM_TURNS: i32 = 10;
+const FIREBALL_DAMAGE: i32 = 12;
+const FIREBALL_RADIUS: i32 = 3;
 
 const PLAYER: usize = 0;
 
@@ -56,6 +58,7 @@ enum AI {
 enum Item {
     Heal,
     Lightning,
+    Fireball,
     Confuse,
 }
 
@@ -190,6 +193,12 @@ impl Object {
         ((dx*dx + dy*dy) as f32).sqrt()
     }
 
+    pub fn distance(&self, x: i32, y: i32) -> f32 {
+        let dx = x - self.x;
+        let dy = y - self.y;
+        ((dx*dx + dy*dy) as f32).sqrt()
+    }
+
     pub fn take_damage(&mut self, damage: i32, game: &mut Game) {
         if let Some(fighter) = self.fighter.as_mut() {
             if damage > 0 {
@@ -310,6 +319,13 @@ fn handle_keys(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) -> P
             }
             DidntTakeTurn
         },
+        (Key { code: Text, .. }, "d", true) => {
+            let inv_idx = inventory_menu(&game.inventory, "Select item to drop", &mut tcod.root);
+            if let Some(inv_idx) = inv_idx {
+                drop_item(inv_idx, game, objects);
+            }
+            DidntTakeTurn
+        },
         (Key { code: Escape, .. }, _, _) => Exit,
         _ => DidntTakeTurn
     }
@@ -421,6 +437,10 @@ fn place_objects(room: Rect, map: &Map, objects: &mut Vec<Object>) {
             } else if dice < 0.8 {
                 let mut scroll = Object::new("scroll of lightning", x, y, '#', LIGHT_YELLOW, false);
                 scroll.item = Some(Item::Lightning);
+                scroll
+            } else if dice < 0.9 {
+                let mut scroll = Object::new("scroll of fireball", x, y, '#', LIGHT_YELLOW, false);
+                scroll.item = Some(Item::Fireball);
                 scroll
             } else {
                 let mut scroll = Object::new("scroll of confusion", x, y, '#', LIGHT_YELLOW, false);
@@ -537,12 +557,20 @@ fn pick_item_up(obj_id: usize, game: &mut Game, objects: &mut Vec<Object>) {
     }
 }
 
+fn drop_item(inv_id: usize, game: &mut Game, objects: &mut Vec<Object>) {
+    let mut item = game.inventory.remove(inv_id);
+    item.set_pos(objects[PLAYER].x, objects[PLAYER].y);
+    game.messages.add(format!("You dropped a {}", item.name), YELLOW);
+    objects.push(item);
+}
+
 fn use_item(inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) {
     use Item::*;
     if let Some(item) = game.inventory[inv_id].item {
         let on_use = match item {
             Heal => cast_heal,
             Lightning => cast_lightning,
+            Fireball => cast_fireball,
             Confuse => cast_confuse,
         };
 
@@ -586,7 +614,9 @@ fn cast_lightning(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mu
 }
 
 fn cast_confuse(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) -> UseResult {
-    let monster_id = closest_monster(tcod, objects, CONFUSE_RANGE);
+    // let monster_id = closest_monster(tcod, objects, CONFUSE_RANGE);
+    game.messages.add("Left-click an enemy to confuse it or right-click to cancel", LIGHT_CYAN);
+    let monster_id = target_monster(tcod, game, objects, Some(CONFUSE_RANGE as f32));
     if let Some(monster_id) = monster_id {
         let old_ai = objects[monster_id].ai.take().unwrap_or(AI::Basic);
         objects[monster_id].ai = Some(AI::Confused { previous_ai: Box::new(old_ai), num_turns: CONFUSE_NUM_TURNS });
@@ -596,6 +626,24 @@ fn cast_confuse(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut 
         game.messages.add("No enemy close enough to confuse", RED);
         UseResult::Cancelled
     }
+}
+
+fn cast_fireball(_inv_id: usize, tcod: &mut Tcod, game: &mut Game, objects: &mut [Object]) -> UseResult {
+    game.messages.add("Left-click a target tile for the fireball, or right click to cancel", LIGHT_CYAN);
+    let (x, y) = match target_tile(tcod, game, objects, None) {
+        Some(tile_pos) => tile_pos,
+        None => return UseResult::Cancelled
+    };
+
+    game.messages.add(format!("The fireball explodes burning everything within {} tiles!", FIREBALL_RADIUS), ORANGE);
+    for obj in objects {
+        if obj.distance(x, y) <= FIREBALL_RADIUS as f32 && obj.fighter.is_some() {
+            game.messages.add(format!("The {} gets burned for {} damage", obj.name, FIREBALL_DAMAGE), ORANGE);
+            obj.take_damage(FIREBALL_DAMAGE, game);
+        }
+    }
+
+    UseResult::UsedUp
 }
 
 fn player_death(player: &mut Object, game: &mut Game) {
@@ -629,6 +677,46 @@ fn closest_monster(tcod: &mut Tcod, objects: &mut [Object], max_range: i32) -> O
     }
 
     closest_enemy
+}
+
+fn target_tile(tcod: &mut Tcod, game: &mut Game, objects: &[Object], max_range: Option<f32>) -> Option<(i32, i32)> {
+    use tcod::input::KeyCode::Escape;
+    loop {
+        tcod.root.flush();
+        let event = input::check_for_event(input::KEY_PRESS | input::MOUSE).map(|e| e.1);
+        match event {
+            Some(Event::Mouse(m)) => tcod.mouse = m,
+            Some(Event::Key(k)) => tcod.key = k,
+            None => Default::default()
+        }
+        render_all(tcod, game, objects, false);
+        let (x, y) = (tcod.mouse.cx as i32, tcod.mouse.cy as i32);
+
+        let in_fov = (x < MAP_WIDTH) && y < MAP_HEIGHT && tcod.fov.is_in_fov(x, y);
+        let in_range = max_range.map_or(true, |rng| objects[PLAYER].distance(x, y) <= rng);
+        if tcod.mouse.lbutton_pressed && in_fov && in_range {
+            println!("Targeted ({}, {})", x, y);
+            return Some((x, y));
+        }
+        if tcod.mouse.rbutton_pressed || tcod.key.code == Escape {
+            return None
+        }
+    }
+}
+
+fn target_monster(tcod: &mut Tcod, game: &mut Game, objects: &[Object], max_range: Option<f32>) -> Option<usize> {
+    loop {
+        match target_tile(tcod, game, objects, max_range) {
+            Some((x, y)) => {
+                for (id, obj) in objects.iter().enumerate() {
+                    if obj.pos() == (x, y) && obj.fighter.is_some() && id != PLAYER {
+                        return Some(id);
+                    }
+                }
+            },
+            None => return None
+        }
+    }
 }
 
 // utils

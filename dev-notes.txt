@@ -19,3 +19,5 @@ Intersting to see about the composition of characters "traits" and whether that'
 Initial AI stuff kind of works but monsters can't track you diagonally from room to corridors.
 
 Well, first big hurdle. the tcod crate contains deprecated stuff that causes a panic. Had to fix this by actually pulling the "crate" directly from the git repo where this issue has been patched
+
+There's something not quite 100% working with the left click to select a target. More oftem than not it doesn't work. Needs looking at and improving
