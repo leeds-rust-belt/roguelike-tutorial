@@ -1,4 +1,10 @@
 use std::cmp;
+use std::error::Error;
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
+use serde::Deserialize;
+use serde::Serialize;
 use tcod::colors;
 use tcod::colors::*;
 use tcod::console::*;
@@ -45,7 +51,7 @@ enum PlayerAction {
     Exit,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum AI {
     Basic,
     Confused {
@@ -54,7 +60,7 @@ enum AI {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 enum Item {
     Heal,
     Lightning,
@@ -67,7 +73,7 @@ enum UseResult {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum DeathCallback {
     Player,
     Monster,
@@ -105,13 +111,15 @@ struct Tcod {
 // type definitions
 type Map = Vec<Vec<Tile>>;
 
-// the game map
+// the game state
+#[derive(Serialize, Deserialize)]
 struct Game {
     map: Map,
     messages: Messages,
     inventory: Vec<Object>,
 }
 
+#[derive(Serialize, Deserialize)]
 struct Messages {
     messages: Vec<(String, Color)>,
 }
@@ -158,7 +166,7 @@ impl Rect {
 }
 
 // an in-game object (e.g. player, monster, et al)
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Object {
     x: i32,
     y: i32,
@@ -242,7 +250,7 @@ impl Object {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct Fighter {
     max_hp: i32,
     hp: i32,
@@ -252,7 +260,7 @@ struct Fighter {
 }
 
 // tile definitions
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Tile {
     blocked: bool,
     explored: bool,
@@ -930,7 +938,10 @@ fn play_game(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) {
         let player = &mut objects[PLAYER];
         prev_pos = player.pos();
         let action = handle_keys(tcod, game, objects);
-        if action == PlayerAction::Exit { break; }
+        if action == PlayerAction::Exit {
+            save_game(game, objects).unwrap();
+            break;
+        }
 
         if objects[PLAYER].alive && action != PlayerAction::DidntTakeTurn {
             for id in 0..objects.len() {
@@ -940,6 +951,21 @@ fn play_game(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) {
             }
         }
     }
+}
+
+fn save_game(game: &Game, objects: &[Object]) -> Result<(), Box<dyn Error>>{
+    let save_data = serde_json::to_string(&(game, objects))?;
+    let mut file = File::create("savegame")?;
+    file.write_all(save_data.as_bytes())?;
+    Ok(())
+}
+
+fn load_game() -> Result<(Game, Vec<Object>), Box<dyn Error>> {
+    let mut saved_state = String::new();
+    let mut file = File::open("savegame")?;
+    file.read_to_string(&mut saved_state)?;
+    let result = serde_json::from_str::<(Game, Vec<Object>)>(&saved_state)?;
+    Ok(result)
 }
 
 fn main_menu(tcod: &mut Tcod) {
@@ -960,6 +986,19 @@ fn main_menu(tcod: &mut Tcod) {
                 let (mut game, mut objects) = new_game(tcod);
                 play_game(tcod, &mut game, &mut objects);
             },
+            Some(1) => {
+                match load_game() {
+                    Ok((mut game, mut objects)) => {
+                        intialise_fov(tcod, &mut game);
+                        play_game(tcod, &mut game, &mut objects);
+                    },
+                    Err(_e) => {
+                        msgbox("\nNo saved game to load\n", 24, &mut tcod.root);
+                        continue;
+                    }
+                }
+                // let (mut game, mut objects) = load_game().unwrap();
+            },
             Some(2) => {
                 // quit
                 break;
@@ -968,6 +1007,11 @@ fn main_menu(tcod: &mut Tcod) {
         }
     }
 
+}
+
+fn msgbox(message: &str, width: i32, root: &mut Root) {
+    let options: &[&str] = &[];
+    menu(message, options, width, root);
 }
 
 // Main
