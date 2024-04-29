@@ -833,7 +833,11 @@ fn render_bar(panel: &mut Offscreen, x: i32, y: i32, total_width: i32, name: &st
 
 fn menu <T: AsRef<str>> (header: &str, options: &[T], width: i32, root: &mut Root) -> Option<usize> {
     assert!(options.len() <= 26, "Cannot have more than 26 options");
-    let header_height = root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header);
+    let header_height = if header.is_empty() {
+        0
+    } else {
+        root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header)
+    };
     let height = options.len() as i32 + header_height;
 
     let mut window = Offscreen::new(width, height);
@@ -878,6 +882,94 @@ fn inventory_menu(inventory: &[Object], header: &str, root: &mut Root) ->Option<
     }
 }
 
+fn new_game(tcod: &mut Tcod) -> (Game, Vec<Object>) {
+    // Game objects
+    let mut player = Object::new("Player", 0, 0, '@', WHITE, true);
+    player.alive = true;
+    player.fighter = Some(Fighter {max_hp: 30, hp: 30, defence: 2, power: 5, on_death: DeathCallback::Player });
+
+    let mut objects = vec![player];
+    let mut game = Game { map: make_map(&mut objects), messages: Messages::new(), inventory: vec![] };
+
+    intialise_fov(tcod, &mut game);
+    game.messages.add("Welcome stranger! Something something foreboding something something death", RED);
+
+    (game, objects)
+}
+
+fn intialise_fov(tcod: &mut Tcod, game: &mut Game) {
+    // Set up FOV map
+    for y in 0..MAP_HEIGHT {
+        for x in 0..MAP_WIDTH {
+            tcod.fov.set(x, y, !game.map[x as usize][y as usize].block_sight, !game.map[x as usize][y as usize].blocked);
+        }
+    }
+
+    tcod.con.clear();
+}
+
+fn play_game(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) {
+    let mut prev_pos = (-1, -1);
+
+    // It's a game; it needs a game loop
+    while !tcod.root.window_closed() {
+        let fov_recompute = prev_pos != (objects[PLAYER].x, objects[PLAYER].y);
+
+        // This call panics. :(
+        // Might be time to move away from tcod
+        match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
+            Some((_, Event::Mouse(m))) => tcod.mouse = m,
+            Some((_, Event::Key(k))) => tcod.key = k,
+            _ => tcod.key = Default::default(),
+        }
+
+        tcod.con.clear();
+        render_all(tcod, game, &objects, fov_recompute);
+        tcod.root.flush();
+
+        let player = &mut objects[PLAYER];
+        prev_pos = player.pos();
+        let action = handle_keys(tcod, game, objects);
+        if action == PlayerAction::Exit { break; }
+
+        if objects[PLAYER].alive && action != PlayerAction::DidntTakeTurn {
+            for id in 0..objects.len() {
+                if objects[id].ai.is_some() {
+                    ai_take_turn(id, tcod, game, objects);
+                }
+            }
+        }
+    }
+}
+
+fn main_menu(tcod: &mut Tcod) {
+    let img = tcod::image::Image::from_file("menu_background.png").ok().expect("Background image not found");
+    while !tcod.root.window_closed() {
+        tcod::image::blit_2x(&img, (0, 0), (-1, -1), &mut tcod.root, (0, 0));
+
+        tcod.root.set_default_foreground(YELLOW);
+        tcod.root.print_ex(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 5, BackgroundFlag::None, TextAlignment::Center, "WITTY GAME TITLE");
+        tcod.root.print_ex(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 3, BackgroundFlag::None, TextAlignment::Center, "By Learning Rust");
+        
+        let choices = &["Play a new game", "Continue previous game", "Quit"];
+        let choice = menu("", choices, 27, &mut tcod.root);
+
+        match choice {
+            Some(0) => {
+                // New game
+                let (mut game, mut objects) = new_game(tcod);
+                play_game(tcod, &mut game, &mut objects);
+            },
+            Some(2) => {
+                // quit
+                break;
+            },
+            _ => {}
+        }
+    }
+
+}
+
 // Main
 fn main() {
     // Initialise and create the root window
@@ -900,52 +992,7 @@ fn main() {
     // limit FPS (doesn't really matter for a key input roguelike)
     tcod::system::set_fps(LIMIT_FPS);
 
-    // Game objects
-    let mut player = Object::new("Player", 0, 0, '@', WHITE, true);
-    player.alive = true;
-    player.fighter = Some(Fighter {max_hp: 30, hp: 30, defence: 2, power: 5, on_death: DeathCallback::Player });
-
-    let mut objects = vec![player];
-    let mut game = Game { map: make_map(&mut objects), messages: Messages::new(), inventory: vec![] };
-
-    // Set up FOV map
-    for x in 0..MAP_WIDTH {
-        for y in 0..MAP_HEIGHT {
-            tcod.fov.set(x, y, !game.map[x as usize][y as usize].block_sight, !game.map[x as usize][y as usize].blocked);
-        }
-    }
-
-    let mut prev_pos = (-1, -1);
-
-    game.messages.add("Welcome stranger! Something something foreboding something something death", RED);
-
-    // It's a game; it needs a game loop
-    while !tcod.root.window_closed() {
-        let fov_recompute = prev_pos != (objects[PLAYER].x, objects[PLAYER].y);
-
-        // This call panics. :(
-        // Might be time to move away from tcod
-        match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
-            Some((_, Event::Mouse(m))) => tcod.mouse = m,
-            Some((_, Event::Key(k))) => tcod.key = k,
-            _ => tcod.key = Default::default(),
-        }
-
-        tcod.con.clear();
-        render_all(&mut tcod, &mut game, &objects, fov_recompute);
-        tcod.root.flush();
-
-        let player = &mut objects[PLAYER];
-        prev_pos = player.pos();
-        let action = handle_keys(&mut tcod, &mut game, &mut objects);
-        if action == PlayerAction::Exit { break; }
-
-        if objects[PLAYER].alive && action != PlayerAction::DidntTakeTurn {
-            for id in 0..objects.len() {
-                if objects[id].ai.is_some() {
-                    ai_take_turn(id, &tcod, &mut game, &mut objects);
-                }
-            }
-        }
-    }
+    // let (mut game, mut objects) = new_game(&mut tcod);
+    // play_game(&mut tcod, &mut game, &mut objects);
+    main_menu(&mut tcod);
 }
