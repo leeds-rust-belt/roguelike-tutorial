@@ -117,6 +117,7 @@ struct Game {
     map: Map,
     messages: Messages,
     inventory: Vec<Object>,
+    depth: i32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -178,12 +179,13 @@ struct Object {
     fighter: Option<Fighter>,
     ai: Option<AI>,
     item: Option<Item>,
+    always_visible: bool,
 }
 
 impl Object {
     // Create a new in-game object
     pub fn new(name: &str, x: i32, y: i32, chr: char, colour: Color, blocks: bool) -> Self {
-        Object { x, y, chr, colour, name: name.into(), blocks, alive: false, fighter: None, ai: None, item: None }
+        Object { x, y, chr, colour, name: name.into(), blocks, alive: false, fighter: None, ai: None, item: None, always_visible: false }
     }
 
     pub fn pos(&self) -> (i32, i32) {
@@ -334,6 +336,13 @@ fn handle_keys(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) -> P
             }
             DidntTakeTurn
         },
+        (Key { code: Text, .. }, ">", true) => {
+            let player_on_stairs = objects.iter().any(|obj| obj.pos() == objects[PLAYER].pos() && obj.name == "stairs" );
+            if player_on_stairs {
+                next_level(tcod, game, objects);
+            }
+            DidntTakeTurn
+        },
         (Key { code: Escape, .. }, _, _) => Exit,
         _ => DidntTakeTurn
     }
@@ -383,6 +392,11 @@ fn make_map(objects: &mut Vec<Object>) -> Map {
             rooms.push(new_room);
         }
     }
+
+    let (last_x, last_y) = rooms.last().unwrap().centre();
+    let mut stairs = Object::new("stairs", last_x, last_y, '>', WHITE, false);
+    stairs.always_visible = true;
+    objects.push(stairs);
 
     map
 }
@@ -478,18 +492,6 @@ fn ai_take_turn(id: usize, tcod: &Tcod, game: &mut Game, objects: &mut [Object])
 
         objects[id].ai = Some(new_ai);
     }
-    // let (monster_x, monster_y) = objects[id].pos();
-    // if tcod.fov.is_in_fov(monster_x, monster_y) {
-    //     if objects[id].distance_to(&objects[PLAYER]) >= 2.0 {
-    //         // Let's move closer
-    //         let (px, py) = objects[PLAYER].pos();
-    //         move_towards(id, px, py, &game.map, objects);
-    //     } else if objects[PLAYER].fighter.map_or(false, |m| m.hp > 0) {
-    //         // ATTTACK!!!!!
-    //         let (monster, player) = mut_two(id, PLAYER, objects);
-    //         monster.attack(player, game);
-    //     }
-    // }
 }
 
 fn ai_basic(monster_id: usize, tcod: &Tcod, game: &mut Game, objects: &mut [Object]) -> AI {
@@ -553,6 +555,22 @@ fn player_move_or_attack(dx: i32, dy: i32, game: &mut Game, objects: &mut [Objec
             move_by(PLAYER, dx, dy, &game.map, objects);
         }
     }
+}
+
+fn next_level(tcod: &mut Tcod, game: &mut Game, objects: &mut Vec<Object>) {
+    game.messages.add("You take the opportunity for a quick rest", VIOLET);
+    let heal_hp = objects[PLAYER].fighter.map_or(0, |pl| pl.max_hp / 2);
+    objects[PLAYER].heal(heal_hp);
+
+    // nix all the object details from the previous level
+    assert_eq!(&objects[PLAYER] as *const _, &objects[0] as *const _);  // Pointer conparison essentially - i.e. is the player object the first in the objects vec?
+    objects.truncate(1);
+
+    // generate next level
+    game.messages.add("YOu take a deep breath before heading deeper into the dungeon", RED);
+    game.depth += 1;
+    game.map = make_map(objects);
+    intialise_fov(tcod, game);
 }
 
 fn pick_item_up(obj_id: usize, game: &mut Game, objects: &mut Vec<Object>) {
@@ -758,7 +776,11 @@ fn render_all(tcod: &mut Tcod, game: &mut Game, objects: &[Object], fov_recomput
         tcod.fov.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
     }
 
-    let mut to_draw: Vec<_> = objects.iter().filter(|obj| tcod.fov.is_in_fov(obj.x, obj.y)).collect();
+    let mut to_draw: Vec<_> = objects.iter().filter(|obj| 
+        tcod.fov.is_in_fov(obj.x, obj.y) || 
+        (obj.always_visible && game.map[obj.x as usize][obj.y as usize].explored)
+    ).collect();
+
     to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
     for obj in &to_draw {
         obj.draw(&mut tcod.con);
@@ -811,10 +833,13 @@ fn render_all(tcod: &mut Tcod, game: &mut Game, objects: &[Object], fov_recomput
         tcod.panel.set_default_foreground(LIGHT_GREY);
         tcod.panel.print_ex(1, 0, BackgroundFlag::None, TextAlignment::Left, get_names_under_mouse(tcod.mouse, objects, &tcod.fov))
     }
+
     // get the relevant player stats
     let hp = objects[PLAYER].fighter.map_or(0, |f| f.hp);
     let max_hp = objects[PLAYER].fighter.map_or(0, |f| f.max_hp);
     render_bar(&mut tcod.panel, 1, 1, BAR_WIDTH, "HP", hp, max_hp, LIGHT_RED, DARKER_RED);
+
+    tcod.panel.print_ex(1, 3, BackgroundFlag::None, TextAlignment::Left, format!("Dungeon Level: {}", game.depth));
 
     // blit the panel in
     blit(&tcod.panel, (0, 0), (SCREEN_WIDTH, PANEL_HEIGHT), &mut tcod.root, (0, PANEL_Y), 1.0, 1.0);
@@ -897,7 +922,7 @@ fn new_game(tcod: &mut Tcod) -> (Game, Vec<Object>) {
     player.fighter = Some(Fighter {max_hp: 30, hp: 30, defence: 2, power: 5, on_death: DeathCallback::Player });
 
     let mut objects = vec![player];
-    let mut game = Game { map: make_map(&mut objects), messages: Messages::new(), inventory: vec![] };
+    let mut game = Game { map: make_map(&mut objects), messages: Messages::new(), inventory: vec![], depth: 1 };
 
     intialise_fov(tcod, &mut game);
     game.messages.add("Welcome stranger! Something something foreboding something something death", RED);
